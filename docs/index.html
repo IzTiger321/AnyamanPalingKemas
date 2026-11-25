@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Anyaman Paling Kemas: Website to APK</title>
+<title>Bungkus: Website to APK</title>
 <style>
 :root{--bg:#0d1117;--card:#161b22;--fg:#e6edf3;--muted:#8b949e;--accent:#1f6feb;--ok:#2ea043;--err:#f85149;--border:#30363d}
 *{box-sizing:border-box}
@@ -95,7 +95,7 @@ function slugify(name) {
   let s = name.toLowerCase().replace(/[^a-z0-9]/g, '');
   if (!s) s = 'app';
   if (/^[0-9]/.test(s)) s = 'app' + s;
-  return 'com.anyaman.' + s;
+  return 'com.iztiger.' + s;
 }
 
 function defaultRepo() {
@@ -151,7 +151,7 @@ function collect() {
   const errs = [];
   if (!/^https:\/\/[A-Za-z0-9._~:\/?#@!$&()*+,;=%-]+$/.test(url)) errs.push('Website URL must start with https:// and contain no spaces or quotes.');
   if (!/^[A-Za-z0-9 ]{1,30}$/.test(name)) errs.push('App name: letters, digits and spaces only (max 30).');
-  if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(pkg)) errs.push('Package ID must look like com.anyaman.myapp');
+  if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(pkg)) errs.push('Package ID must look like com.iztiger.myapp');
   if (!/^[0-9A-Za-z.-]{1,20}$/.test(vname)) errs.push('Version name: letters, digits, dots and dashes only.');
   if (!/^[1-9][0-9]{0,8}$/.test(vcode)) errs.push('Version code must be a whole number of at least 1.');
   if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) errs.push('Repository must be in owner/name form.');
