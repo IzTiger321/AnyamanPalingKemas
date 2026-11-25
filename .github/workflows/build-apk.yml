@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       package_id:
-        description: "Package ID, e.g. com.anyaman.myapp"
+        description: "Package ID, e.g. com.iztiger.myapp"
         required: true
         type: string
       version_name:
@@ -94,6 +94,14 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and build tools
+        run: |
+          set -euo pipefail
+          sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+
       - name: Get icon source
         run: |
           set -euo pipefail
@@ -174,7 +182,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gradle :app:assembleRelease --no-daemon \
+          gradle :app:assembleRelease --no-daemon --stacktrace \
             -PappId="$PACKAGE_ID" \
             -PappName="$APP_NAME" \
             -PversionName="$VERSION_NAME" \
