@@ -59,12 +59,17 @@ a.dl{display:inline-block;margin-top:10px;background:var(--ok);color:#fff;text-d
     </label>
 
     <label>Repository (owner/name)
-      <input id="repo" type="text" placeholder="anyaman/AnyamanPalingKemas" autocomplete="off">
+      <input id="repo" type="text" placeholder="IzTiger321/AnyamanPalingKemas" autocomplete="off">
     </label>
 
     <label>GitHub token (fine-grained, this repo only: Actions read/write, Contents read)
       <input id="token" type="password" autocomplete="off">
       <span class="hint">Saved in this browser's localStorage only. Never written to the repository.</span>
+    </label>
+
+    <label>Access code
+      <input id="code" type="password" autocomplete="off">
+      <span class="hint">Required for every build. Not saved.</span>
     </label>
 
     <button id="build" type="button">Build APK</button>
@@ -79,7 +84,8 @@ const BRANCH = 'main';
 const $ = id => document.getElementById(id);
 const el = {
   url: $('url'), name: $('name'), pkg: $('pkg'), vname: $('vname'), vcode: $('vcode'),
-  icon: $('icon'), token: $('token'), repo: $('repo'), build: $('build'), status: $('status')
+  icon: $('icon'), token: $('token'), repo: $('repo'), code: $('code'),
+  build: $('build'), status: $('status')
 };
 let pkgTouched = false;
 let iconB64 = '';
@@ -141,6 +147,7 @@ function collect() {
   const vcode = el.vcode.value.trim() || '1';
   const repo = el.repo.value.trim();
   const token = el.token.value.trim();
+  const code = el.code.value;
   const errs = [];
   if (!/^https:\/\/[A-Za-z0-9._~:\/?#@!$&()*+,;=%-]+$/.test(url)) errs.push('Website URL must start with https:// and contain no spaces or quotes.');
   if (!/^[A-Za-z0-9 ]{1,30}$/.test(name)) errs.push('App name: letters, digits and spaces only (max 30).');
@@ -149,11 +156,13 @@ function collect() {
   if (!/^[1-9][0-9]{0,8}$/.test(vcode)) errs.push('Version code must be a whole number of at least 1.');
   if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) errs.push('Repository must be in owner/name form.');
   if (!token) errs.push('A GitHub token is required.');
+  if (!code) errs.push('An access code is required.');
   if (iconB64.length > 60000) errs.push('Icon is too large. Use a smaller or simpler PNG.');
   if (errs.length) { show(errs.join('\n'), 'err'); return null; }
   return {
     token, repo, pkg, vcode,
     inputs: {
+      access_code: code,
       app_name: name,
       package_id: pkg,
       version_name: vname,
@@ -207,6 +216,7 @@ async function start() {
       method: 'POST',
       body: JSON.stringify({ ref: BRANCH, inputs: job.inputs })
     });
+    el.code.value = '';
     show('Build queued. Waiting for GitHub Actions to start...');
     const run = await findRun(job, since);
     await watch(job, run.id);
