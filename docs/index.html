@@ -135,6 +135,13 @@ async function gh(job, path, opts = {}) {
   });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
+  if (res.status === 404) {
+    throw new Error(
+      `Not found: ${opts.method || 'GET'} ${path}. Check that the repo field is ` +
+      `"${job.repo}", that the token is scoped to this repo with Actions read/write ` +
+      `and Contents read, and that Actions is enabled.`
+    );
+  }
   if (!res.ok) throw new Error(data.message || 'HTTP ' + res.status);
   return data;
 }
