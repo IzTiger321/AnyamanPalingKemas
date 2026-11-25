@@ -1,0 +1,196 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      access_code:
+        description: "Access code"
+        required: true
+        type: string
+      app_name:
+        description: "App name (letters, digits, spaces)"
+        required: true
+        type: string
+      package_id:
+        description: "Package ID, e.g. com.anyaman.myapp"
+        required: true
+        type: string
+      version_name:
+        description: "Version name"
+        required: true
+        default: "1.0.0"
+        type: string
+      version_code:
+        description: "Version code (integer >= 1)"
+        required: true
+        default: "1"
+        type: string
+      target_url:
+        description: "Website URL (https)"
+        required: true
+        type: string
+      icon_base64:
+        description: "Optional PNG icon, base64 encoded (empty = fetch from site)"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ inputs.package_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Only runs started by the owner account may reach the signing keystore.
+    if: github.actor == 'IzTiger321'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ACCESS_CODE: ${{ inputs.access_code }}
+      BUILD_ACCESS_CODE: ${{ secrets.BUILD_ACCESS_CODE }}
+      APP_NAME: ${{ inputs.app_name }}
+      PACKAGE_ID: ${{ inputs.package_id }}
+      VERSION_NAME: ${{ inputs.version_name }}
+      VERSION_CODE: ${{ inputs.version_code }}
+      TARGET_URL: ${{ inputs.target_url }}
+      ICON_B64: ${{ inputs.icon_base64 }}
+    steps:
+      - name: Mask access code
+        run: |
+          if [ -n "$ACCESS_CODE" ]; then echo "::add-mask::$ACCESS_CODE"; fi
+
+      - name: Check access code
+        run: |
+          set -euo pipefail
+          if [ -z "$BUILD_ACCESS_CODE" ] || [ "$ACCESS_CODE" != "$BUILD_ACCESS_CODE" ]; then
+            echo "::error::Access denied"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          check() { [[ "$2" =~ $3 ]] || { echo "::error::Invalid $1"; exit 1; }; }
+          check "app name" "$APP_NAME" '^[A-Za-z0-9 ]{1,30}$'
+          check "package ID" "$PACKAGE_ID" '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'
+          check "version name" "$VERSION_NAME" '^[0-9A-Za-z.-]{1,20}$'
+          check "version code" "$VERSION_CODE" '^[1-9][0-9]{0,8}$'
+          check "target URL" "$TARGET_URL" '^https://[A-Za-z0-9._~:/?#@!$&()*+,;=%-]+$'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Get icon source
+        run: |
+          set -euo pipefail
+          if [ -n "${ICON_B64}" ]; then
+            echo "$ICON_B64" | base64 -d > /tmp/icon.src
+            echo "Using uploaded icon"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import os, re, sys, urllib.request
+          from urllib.parse import urljoin, urlparse
+
+          url = os.environ["TARGET_URL"]
+          ua = {"User-Agent": "Mozilla/5.0"}
+
+          def get(u):
+              req = urllib.request.Request(u, headers=ua)
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  return r.read(), r.geturl()
+
+          cands, final = [], url
+          try:
+              html, final = get(url)
+              apple, other = [], []
+              for tag in re.findall(r"<link[^>]*>", html.decode("utf-8", "ignore"), re.I):
+                  if re.search(r"rel=[\"'][^\"']*icon", tag, re.I):
+                      h = re.search(r"href=[\"']([^\"']+)", tag, re.I)
+                      if h:
+                          (apple if "apple-touch" in tag.lower() else other).append(urljoin(final, h.group(1)))
+              cands = apple + other
+          except Exception as e:
+              print("Page fetch failed:", e)
+
+          p = urlparse(final)
+          origin = f"{p.scheme}://{p.netloc}"
+          cands += [origin + "/apple-touch-icon.png", origin + "/favicon.ico"]
+
+          for c in cands:
+              try:
+                  data, _ = get(c)
+                  if len(data) > 100:
+                      with open("/tmp/icon.src", "wb") as f:
+                          f.write(data)
+                      print("Fetched icon:", c)
+                      sys.exit(0)
+              except Exception as e:
+                  print("Skipped", c, e)
+          print("No icon found, a plain fallback icon will be used")
+          PY
+
+      - name: Generate launcher icons
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/icon.src ] || ! convert "/tmp/icon.src[0]" -background none -resize 512x512 -gravity center -extent 512x512 /tmp/icon512.png 2>/dev/null; then
+            echo "Using fallback icon"
+            convert -size 512x512 xc:"#1f6feb" /tmp/icon512.png
+          fi
+          for entry in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            dir="app/src/main/res/mipmap-${entry%%:*}"
+            size="${entry##*:}"
+            mkdir -p "$dir"
+            convert /tmp/icon512.png -resize "${size}x${size}" "$dir/ic_launcher.png"
+            cp "$dir/ic_launcher.png" "$dir/ic_launcher_round.png"
+          done
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          gradle :app:assembleRelease --no-daemon \
+            -PappId="$PACKAGE_ID" \
+            -PappName="$APP_NAME" \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE" \
+            -PtargetUrl="$TARGET_URL"
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/${PACKAGE_ID}-v${VERSION_CODE}.apk"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="apk-${PACKAGE_ID}-${VERSION_CODE}"
+          APK="$RUNNER_TEMP/${PACKAGE_ID}-v${VERSION_CODE}.apk"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" "$APK" \
+            --title "$APP_NAME $VERSION_NAME ($VERSION_CODE)" \
+            --notes "Built from $TARGET_URL" \
+            --target "$GITHUB_SHA"
